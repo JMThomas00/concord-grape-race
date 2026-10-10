@@ -4,6 +4,8 @@ github.com/JMThomas00/Concord/sdk v0.10.1-0.20261010051915-b0fac17763db h1:FFh0N
 github.com/JMThomas00/Concord/sdk v0.10.1-0.20261010051915-b0fac17763db/go.mod h1:hJyvQwgoXihZyKbGDb9XgPkWZ5gpu02dFY75NH6J1TA=
 github.com/JMThomas00/Concord/sdk v0.10.1-0.20261010053040-70f2bddcd37c h1:cPYH6B9e2EH1M6cxrnLQuBdc8UDKCzIuEMgGQ1SqVLw=
 github.com/JMThomas00/Concord/sdk v0.10.1-0.20261010053040-70f2bddcd37c/go.mod h1:hJyvQwgoXihZyKbGDb9XgPkWZ5gpu02dFY75NH6J1TA=
+github.com/JMThomas00/Concord/sdk v0.10.1-0.20261010054844-91a93282d747 h1:FCmMs2StFzQt8Bt5c3HlvoMl6oH73pNXrb17NOShczM=
+github.com/JMThomas00/Concord/sdk v0.10.1-0.20261010054844-91a93282d747/go.mod h1:hJyvQwgoXihZyKbGDb9XgPkWZ5gpu02dFY75NH6J1TA=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=

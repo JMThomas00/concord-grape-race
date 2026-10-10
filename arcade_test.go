@@ -151,7 +151,7 @@ func fits(t *testing.T, m *model, size [2]int, s screen) {
 		t.Fatalf("screen %d at %v: %d lines", s, size, len(lines))
 	}
 	for _, l := range lines {
-		if w := ansi.StringWidth(l); w > size[0] {
+		if w := ansi.StringWidth(l); w != size[0] { // exactly: Concord centres each line on its own
 			t.Fatalf("screen %d at %v: a line %d wide: %q", s, size, w, sgr.ReplaceAllString(l, ""))
 		}
 	}

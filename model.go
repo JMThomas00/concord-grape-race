@@ -518,7 +518,7 @@ func (m *model) smallView(w, h int) string {
 		add(" " + st.dim.Render("Make the pane bigger (64 x 24) for this screen."))
 	}
 	lines = append(lines, "", st.dim.Render(" ↑↓ ←→ Enter · Esc back"))
-	return pane.Fit(strings.Join(lines, "\n"), w, h)
+	return fill(pane.Fit(strings.Join(lines, "\n"), w, h), w)
 }
 
 func (m *model) optionValue(row string) string {

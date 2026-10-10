@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/JMThomas00/Concord/sdk/pane"
 )
@@ -127,7 +128,7 @@ func (m *model) compactView() string {
 		out = append(out, "")
 	}
 	out = append(out, bottom...)
-	return pane.Fit(strings.Join(out, "\n"), w, h)
+	return fill(pane.Fit(strings.Join(out, "\n"), w, h), w)
 }
 
 func (m *model) header(st styles, r *race, w int) string {
@@ -444,3 +445,16 @@ func clock(d time.Duration) string {
 
 // ceilSecs is d in whole seconds, rounded up: a countdown reads 5 at 5s.
 func ceilSecs(d time.Duration) int { return int((max(0, d) + time.Second - 1) / time.Second) }
+
+// fill pads every line to the pane's width. Concord centres each line of a
+// frame on its own, so lines of different lengths would shift against each
+// other.
+func fill(frame string, w int) string {
+	lines := strings.Split(frame, "\n")
+	for i, l := range lines {
+		if n := ansi.StringWidth(l); n < w {
+			lines[i] = l + strings.Repeat(" ", w-n)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
