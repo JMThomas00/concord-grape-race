@@ -1,33 +1,58 @@
 # 🍇 Grape Race
 
-A typing race for [Concord](https://github.com/JMThomas00/Concord). Everyone
-in the channel types the same passage at once, and each person's grape rolls
-down its vine as they go. Run on its own, it's typing practice in your
-terminal.
+An arcade typing race for [Concord](https://github.com/JMThomas00/Concord).
+Everyone in the channel races the same passage on a drag strip, cars driven
+by grapes, with a garage full of cars to unlock. Run on its own, it's typing
+practice in your terminal. It's the first game built on the Concord Arcade
+standard (`sdk/arcade`): title screen, menu, pixel art and chiptune sounds.
 
 ```
- 🍇 Grape Race                                           race 4 · 0:20
+1 BOB      │                         ▄▀▄▄▀▀▀▄▄▀▄                        ▞▚
+   48 WPM  │                ─  ─  ━   ▀▀▀▀▀▀▀▀▀                         ▚▞
+            ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+2 JORDAN   │          ✶      ▄█▀▄    SPIN!                              ▞▚
+   24 WPM  │   ─  ─  ━   ▀▀▀▀▀▀▀▀▀▀▀✶                                   ▚▞
 
-   bob    ━━━━━━━━━━━━━━━━━━━━━━━━🍇┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  33 wpm
- ▶ jordan ━━━━━━━━━━━━━🍇┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  18 wpm
-
- GO!  18 wpm · 94% accuracy · 30/112
-
- He tuned the old radio until the static gave way to a voice reading
- the shipping forecast, calm as a lighthouse.
+╭─ SPEED ──────────────────╮ ╭─ PIT BOARD ─────────────────────────────────────╮
+│ █▀▀█ ▀▀▀█ █▀▀█  WPM      │ │ POSITION   2 OF 3                               │
+│ █▄▄█ ▀▄▄█ █▄▄█  94% ACC  │ │ GAP        30 CHARS BEHIND BOB                  │
+│ █  █ █  █ █  █           │ │ STREAK     0 CLEAN KEYS                         │
+│ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀  ▮▮▯▯▯▯▯▯▯│ │ PASSAGE    30/112                               │
+╰──────────────────────────╯ ╰─────────────────────────────────────────────────╯
 ```
 
 ## How to play
 
-- **Enter** starts a race. A countdown begins, and everyone viewing the
-  channel who presses **Enter** before GO joins in.
-- Type the passage. Typed text turns bright, the next character is
-  underlined, and **mistakes turn red**: fix them with **Backspace**
-  (**Ctrl+W** deletes a word) before you can finish.
-- Speed is in words per minute (five characters to a word), timed from GO.
-  The first clean finish wins.
-- After the race: results, new personal bests, and the server's fastest
-  typists. **Enter** starts the next one.
+- **The menu:** RACE, PRACTICE (a solo run that's yours alone), GARAGE,
+  HALL OF FAME, HOW TO PLAY and OPTIONS. ↑↓ and Enter; Esc goes back.
+- **RACE** starts a race, or joins the one staging. The starting line is a
+  drag-strip tree: pre-stage, stage, three ambers with a beep each, then
+  green. The passage is shown beside it, so read ahead.
+- **Red light:** typing before green adds 1 second to your time.
+- Type the passage. Typed text turns bright, the next character is marked,
+  and **mistakes turn red** (and spin your car out): fix them with
+  **Backspace** (**Ctrl+W** deletes a word) before you can finish.
+- Speed is in words per minute (five characters to a word), timed from
+  green. The first clean finish wins. The pit board shows your position,
+  the gap to the car ahead and your clean-key streak.
+- **Results:** a chequered flag, the podium, new records, and any Pit
+  Passes you earned. **Enter** goes again.
+
+## The garage and Pit Passes
+
+Everyone starts with three cars: Go-Kart, Stock Car and Hatchback. Fifteen
+more are earned, from the F1 Racer and Monster Truck to the legendary
+Wine Barrel, Shopping Cart, Bathtub, Couch and Giant Grape.
+
+- A **Pit Pass** comes with each new achievement, every 3 wins in a row and
+  every 10 races finished.
+- In the **GARAGE**, Enter on a locked car spends a pass: you're offered
+  three locked cars (rarer ones less often) and keep one. The offer is
+  saved until you choose, so leaving doesn't re-roll it.
+- Pick your car's paint (seven colours from your Concord theme) and its
+  number. Everyone racing sees your car, paint and number on your lane.
+- **C** in the garage opens the showroom: all 18 cars, locked ones as
+  silhouettes.
 
 **Spectating:** if you're in the channel but not racing, you watch one racer
 type live, mistakes and all (the leader, to start with). **←/→** switches
@@ -114,10 +139,17 @@ which is what Concord installs.
 
 - `plugin.toml`: the channel type, its options, the achievements and the
   leaderboard.
-- `race.go`: one race: joining, the countdown, typing, mistakes, WPM.
-- `app.go`: the races per channel and the clock that keeps live ones moving.
-- `model.go`: what each viewer sees (a Bubble Tea model per viewer).
-- `records.go`: personal bests and achievements, saved in the plugin's data folder.
+- `race.go`: one race: joining, the countdown, red lights, typing, mistakes, WPM.
+- `app.go`: the races per channel, practice races, and the clock that runs
+  the lights, the race and the title screen's attract mode.
+- `model.go`: each viewer's screens and keys (a Bubble Tea model per viewer).
+- `screens.go`: the arcade screens, drawn with `sdk/arcade`.
+- `compact.go`: the plain layout for panes smaller than 64 x 24.
+- `cars.go`: the 18 cars, 12 x 4 pixels each.
+- `records.go`: bests, achievements, the garage and Pit Passes, and each
+  player's options, saved in the plugin's data folder.
+- `client/sounds/`: the arcade sound kit. `go generate` writes it
+  (`tools/gensounds`).
 - `passages.txt`: the passages, all original. Add your own: plain ASCII,
   one blank line between passages.
 

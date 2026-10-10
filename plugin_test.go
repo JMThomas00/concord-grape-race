@@ -46,14 +46,20 @@ func TestRaceInConcord(t *testing.T) {
 	srv.Channel(wire.Channel{ID: ch, Name: "grape-race", PluginConfig: map[string]string{"length": "short"}})
 	alice := srv.Enter(ch, "alice", 80, 24)
 	bob := srv.Enter(ch, "bob", 80, 24)
-	small := srv.Enter(ch, "carol", 43, 17) // odd sizes catch overflow
-	srv.FrameContaining(alice, "Race the room")
+	small := srv.Enter(ch, "carol", 43, 17)   // odd sizes catch overflow
+	srv.FrameContaining(alice, "PRESS ENTER") // the title screen
 
-	srv.Key(alice, "enter")
-	srv.FrameContaining(bob, "Press Enter to join")
+	srv.Key(alice, "enter") // title -> menu
+	srv.Key(alice, "enter") // RACE: starts the countdown
+	srv.FrameContaining(alice, "STARTS IN")
+	srv.Key(bob, "enter") // title -> menu, where RACE says a race is staging
+	srv.FrameContaining(bob, "Join race #1")
 	srv.Key(bob, "enter")
+	srv.FrameContaining(bob, "Hands on the keys")
 	clk.add(2 * time.Second) // the next tick ends the countdown
 	srv.FrameContaining(alice, "GO!")
+	srv.Key(small, "enter") // carol, in a small pane: title -> menu
+	srv.Key(small, "enter") // RACE while it's on: watch, and go next
 	if f := srv.FrameContaining(small, "Spectating"); !strings.Contains(f, "Watching ") {
 		t.Fatalf("a spectator should be watching someone:\n%s", f)
 	}
@@ -62,8 +68,8 @@ func TestRaceInConcord(t *testing.T) {
 	srv.Key(bob, "x")         // a mistake, fixed
 	srv.Key(bob, "backspace")
 	srv.Type(bob, text)
-	srv.FrameContaining(bob, "Finished 1st!")
-	srv.FrameContaining(alice, "left to finish") // the finish timer started
+	srv.FrameContaining(bob, "FINISHED 1ST")
+	srv.FrameContaining(alice, "TO FINISH") // the finish timer started
 	rec := nextRecord(t, srv)
 	if rec.UserID != bob.ID || rec.Stats[0].Key != "best_wpm" || rec.Stats[0].Num < 19 || rec.Stats[0].Num > 20 {
 		t.Fatalf("bob's record: %+v", rec)
@@ -78,11 +84,11 @@ func TestRaceInConcord(t *testing.T) {
 
 	clk.add(5 * time.Second)
 	srv.Type(alice, text)
-	f := sgr.ReplaceAllString(srv.FrameContaining(alice, "Results"), "")
+	srv.FrameContaining(alice, "YOUR RACE")
+	f := sgr.ReplaceAllString(srv.FrameContaining(small, "Results"), "")
 	if !strings.Contains(f, "1st  bob") || !strings.Contains(f, "2nd  alice") {
 		t.Fatalf("results:\n%s", f)
 	}
-	f = sgr.ReplaceAllString(srv.FrameContaining(small, "Results"), "")
 	for _, l := range strings.Split(f, "\n") {
 		if w := len([]rune(l)); w > 43 {
 			t.Fatalf("line %d runes wide in a 43-column pane: %q", w, l)
@@ -102,6 +108,7 @@ func TestPasteIsIgnored(t *testing.T) {
 	a := newApp(loadRecords(""), clk.now)
 	a.races[uuid.Nil] = r
 	m := newModel(a, uuid.Nil, me, "me", nil)
+	m.scr = scrRace
 	m.Update(keyRunes("abc"))
 	if len(r.racer(me).typed) != 0 {
 		t.Fatal("a paste was typed")

@@ -132,6 +132,7 @@ func TestSpectatorFollowsTheLeader(t *testing.T) {
 	app := newApp(loadRecords(""), clk.now)
 	app.races[uuid.Nil] = r
 	m := newModel(app, uuid.Nil, me, "me", nil)
+	m.scr = scrRace
 	typeAll(r, b, "grapes")
 	typeAll(r, a, "gr")
 	if got := m.target(r); got.ID != b {

@@ -5,7 +5,7 @@
 id = "concord-grape-race"
 name = "Grape Race"
 version = "0.1.0"            # release.go stamps the git tag here
-description = "A typing race: everyone in the channel types the same passage, and each grape rolls down its vine as they go."
+description = "An arcade typing race: everyone in the channel races the same passage on a drag strip, with a garage of unlockable cars."
 author = "JMThomas00"
 source_url = "https://github.com/JMThomas00/concord-grape-race"
 
@@ -19,6 +19,10 @@ bin = "concord-grape-race"
 bin = "concord-grape-race"
 [process.entrypoint.windows]
 bin = "concord-grape-race.exe"
+
+# Sounds from client/sounds (the Concord Arcade kit, written by go generate).
+[client]
+capabilities = ["sound"]
 
 [[channel_kind]]
 kind = "race"

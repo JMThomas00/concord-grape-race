@@ -6,10 +6,27 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
 
+	"github.com/JMThomas00/Concord/sdk/arcade"
 	"github.com/JMThomas00/Concord/sdk/pane"
+	"github.com/JMThomas00/Concord/sdk/wire"
+)
+
+// screen is where a viewer is in the game.
+type screen int
+
+const (
+	scrTitle screen = iota
+	scrMenu
+	scrRace     // the channel's race
+	scrPractice // the viewer's own race
+	scrGarage
+	scrDraft
+	scrShowroom
+	scrHOF
+	scrHowTo
+	scrOptions
 )
 
 // redrawMsg asks a viewer's model to draw again (shared state changed).
@@ -18,7 +35,13 @@ type redrawMsg struct{}
 // runMsg carries work onto the standalone program's update loop.
 type runMsg func()
 
-// model is one viewer's screen. The race itself lives in app.
+// attractFor is how long the title screen animates after the last key.
+const attractFor = 30 * time.Second
+
+// revealFor is how long an unlock is celebrated before the garage returns.
+const revealFor = 3200 * time.Millisecond
+
+// model is one viewer's screen. The races and records live in app.
 type model struct {
 	a          *app
 	ch, id     uuid.UUID
@@ -27,32 +50,187 @@ type model struct {
 	w, h       int
 	standalone bool
 	watch      uuid.UUID // the racer this viewer follows while not typing (zero: the leader)
+
+	scr                              screen
+	menu, gRow, gModel, draftSel, op int
+	lastKey                          time.Time
+	revealAt                         time.Time
+	revealID                         string
+	revealOffer                      []string // the cards on show while an unlock is revealed
 }
 
 func newModel(a *app, ch, id uuid.UUID, name string, v *pane.Viewer) *model {
-	return &model{a: a, ch: ch, id: id, name: name, v: v}
+	m := &model{a: a, ch: ch, id: id, name: name, v: v, lastKey: a.now()}
+	a.models[id] = m
+	a.startTicker() // the title screen's attract mode
+	return m
 }
 
 func (m *model) Init() tea.Cmd { return nil }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 	case runMsg:
 		msg()
 	case tea.KeyMsg:
-		return m, m.key(msg)
+		m.lastKey = m.a.now()
+		cmd = m.key(msg)
 	}
-	return m, nil
+	if !m.revealAt.IsZero() && m.a.now().Sub(m.revealAt) >= revealFor {
+		m.revealAt, m.scr = time.Time{}, scrGarage
+	}
+	return m, cmd
+}
+
+// ClaimedKeys: Esc is Concord's on the title screen (it leaves the pane);
+// everywhere else it means back.
+func (m *model) ClaimedKeys() []string {
+	if m.scr == scrTitle {
+		return nil
+	}
+	return []string{wire.PaneKeyEsc}
+}
+
+// animated reports whether this screen moves on its own: the title's
+// attract mode, an unlock being revealed.
+func (m *model) animated() bool {
+	switch {
+	case m.scr == scrTitle:
+		return m.effects() == 0 && m.a.now().Sub(m.lastKey) < attractFor
+	case m.scr == scrDraft:
+		return !m.revealAt.IsZero()
+	}
+	return false
+}
+
+// cur is the race this viewer is looking at.
+func (m *model) cur() *race {
+	if m.scr == scrPractice {
+		return m.a.practiceFor(m.id)
+	}
+	return m.a.race(m.ch)
+}
+
+func (m *model) rec() *record { return m.a.records.ensure(m.id, m.name) }
+
+func (m *model) effects() int {
+	if r := m.a.records.get(m.id); r != nil {
+		return r.Options.Effects
+	}
+	return 0
+}
+
+// blink is true half the time (twice a second at five frames), or always
+// when effects are calm or off.
+func (m *model) blink() bool { return m.effects() > 0 || (m.a.frame/3)%2 == 0 }
+
+func (m *model) go_(s screen) {
+	m.scr = s
+	if s == scrTitle {
+		m.a.startTicker()
+	}
+}
+
+// menuItems are the main menu, with what each does.
+func (m *model) menuItems() []string {
+	if m.standalone {
+		return []string{"PRACTICE", "GARAGE", "HALL OF FAME", "HOW TO PLAY", "OPTIONS", "QUIT"}
+	}
+	return []string{"RACE", "PRACTICE", "GARAGE", "HALL OF FAME", "HOW TO PLAY", "OPTIONS"}
 }
 
 func (m *model) key(k tea.KeyMsg) tea.Cmd {
 	if m.standalone && k.Type == tea.KeyCtrlC {
 		return tea.Quit
 	}
-	r := m.a.race(m.ch)
-	if r.active(m.id) != nil {
+	s := k.String()
+	switch m.scr {
+	case scrTitle:
+		switch s {
+		case "enter":
+			m.a.play(m.id, arcade.SoundCoin)
+			m.go_(scrMenu)
+		case "esc", "q":
+			if m.standalone {
+				return tea.Quit
+			}
+		}
+	case scrMenu:
+		items := m.menuItems()
+		switch s {
+		case "up", "k":
+			m.menu = (m.menu + len(items) - 1) % len(items)
+			m.a.play(m.id, arcade.SoundBlip)
+		case "down", "j":
+			m.menu = (m.menu + 1) % len(items)
+			m.a.play(m.id, arcade.SoundBlip)
+		case "esc":
+			m.a.play(m.id, arcade.SoundBack)
+			m.go_(scrTitle)
+		case "enter":
+			m.a.play(m.id, arcade.SoundSelect)
+			switch items[m.menu] {
+			case "RACE":
+				m.go_(scrRace)
+				m.a.join(m.ch, m.id, m.name)
+			case "PRACTICE":
+				m.go_(scrPractice)
+				m.a.startPractice(m.ch, m.id, m.name)
+			case "GARAGE":
+				m.openGarage()
+			case "HALL OF FAME":
+				m.go_(scrHOF)
+			case "HOW TO PLAY":
+				m.go_(scrHowTo)
+			case "OPTIONS":
+				m.op = 0
+				m.go_(scrOptions)
+			case "QUIT":
+				return tea.Quit
+			}
+		}
+	case scrRace, scrPractice:
+		m.raceKey(k)
+	case scrGarage:
+		m.garageKey(s)
+	case scrDraft:
+		m.draftKey(s)
+	case scrShowroom, scrHOF, scrHowTo:
+		if s == "esc" {
+			m.a.play(m.id, arcade.SoundBack)
+			if m.scr == scrShowroom {
+				m.go_(scrGarage)
+			} else {
+				m.go_(scrMenu)
+			}
+		}
+	case scrOptions:
+		m.optionsKey(s)
+	}
+	return nil
+}
+
+// raceKey handles keys on a race screen: typing while racing, a red light
+// for typing during the countdown, Enter to start or join, ←/→ to watch.
+func (m *model) raceKey(k tea.KeyMsg) {
+	r := m.cur()
+	redraw := func() {
+		if m.scr == scrPractice {
+			m.a.sendTo(m.id)
+		} else {
+			m.a.changed(m.ch)
+		}
+	}
+	if p := r.active(m.id); p != nil {
+		if k.String() == "esc" {
+			m.a.play(m.id, arcade.SoundBack)
+			m.go_(scrMenu)
+			return
+		}
+		mistakes := p.mistakes
 		changed := false
 		switch {
 		case k.Type == tea.KeyRunes && len(k.Runes) == 1 && !k.Alt:
@@ -64,98 +242,189 @@ func (m *model) key(k tea.KeyMsg) tea.Cmd {
 		case k.Type == tea.KeyBackspace, k.Type == tea.KeyCtrlH:
 			changed = r.Backspace(m.id)
 		}
-		if changed {
-			m.a.changed(m.ch)
+		if p.mistakes > mistakes {
+			m.a.play(m.id, arcade.SoundMistake)
 		}
-		return nil
+		if changed {
+			redraw()
+		}
+		return
+	}
+	if r.phase == countdown && r.racer(m.id) != nil && (k.Type == tea.KeyRunes || k.Type == tea.KeySpace) {
+		if r.Jump(m.id) {
+			m.a.play(m.id, arcade.SoundRed)
+			redraw()
+		}
+		return
 	}
 	switch k.String() {
 	case "enter":
-		m.a.join(m.ch, m.id, m.name)
+		if m.scr == scrPractice {
+			m.a.startPractice(m.ch, m.id, m.name)
+		} else {
+			m.a.join(m.ch, m.id, m.name)
+		}
 	case "left", "right":
 		m.cycleWatch(r, k.String() == "right")
-	case "esc", "q":
-		if m.standalone {
-			return tea.Quit
-		}
+	case "esc":
+		m.a.play(m.id, arcade.SoundBack)
+		m.go_(scrMenu)
 	}
-	return nil
 }
 
-// target is whose typing the passage shows: your own while you're typing,
-// otherwise the racer you chose with left/right, or else whoever's ahead
-// among those still going.
-func (m *model) target(r *race) *racer {
-	if p := r.active(m.id); p != nil {
-		return p
-	}
-	if p := r.racer(m.watch); p != nil && p.ID != m.id {
-		return p
-	}
-	for _, p := range r.Standings() {
-		if p.ID != m.id && !p.done && p.Out == "" {
-			return p
+func (m *model) openGarage() {
+	m.gRow = 0
+	m.gModel = 0
+	cur := m.a.records.car(m.id).Model
+	for i, c := range cars {
+		if c.ID == cur {
+			m.gModel = i
 		}
 	}
-	return r.racer(m.id)
+	m.go_(scrGarage)
 }
 
-// cycleWatch follows the next (or previous) racer.
-func (m *model) cycleWatch(r *race, forward bool) {
-	var others []*racer
-	for _, p := range r.racers {
-		if p.ID != m.id {
-			others = append(others, p)
-		}
-	}
-	if len(others) == 0 || r.phase != racing {
-		return
-	}
-	i := 0
-	if t := m.target(r); t != nil {
-		for j, p := range others {
-			if p.ID == t.ID {
+func (m *model) garageKey(s string) {
+	rec := m.rec()
+	car := m.a.records.car(m.id)
+	d := map[string]int{"left": -1, "h": -1, "right": 1, "l": 1}[s]
+	switch {
+	case s == "up" || s == "k":
+		m.gRow = (m.gRow + 2) % 3
+	case s == "down" || s == "j":
+		m.gRow = (m.gRow + 1) % 3
+	case d != 0 && m.gRow == 0:
+		m.gModel = (m.gModel + len(cars) + d) % len(cars)
+	case d != 0 && m.gRow == 1:
+		i := 0
+		for j, p := range arcade.Paints {
+			if p == car.Paint {
 				i = j
 			}
 		}
-	}
-	if forward {
-		i = (i + 1) % len(others)
-	} else {
-		i = (i + len(others) - 1) % len(others)
-	}
-	m.watch = others[i].ID
-}
-
-// styles, from the viewer's Concord theme (Dracula when standalone).
-type styles struct {
-	title, fg, dim, done, wrong, cursor, good, warn, bad, accent, vine lipgloss.Style
-}
-
-func (m *model) styles() styles {
-	c := func(name, hex string) lipgloss.TerminalColor {
-		if m.v != nil {
-			return m.v.Color(name, lipgloss.Color(hex))
+		car.Paint = arcade.Paints[(i+len(arcade.Paints)+d)%len(arcade.Paints)]
+		rec.Car = car
+		m.a.records.save()
+	case d != 0 && m.gRow == 2:
+		car.Number = (car.Number-1+d+99)%99 + 1
+		rec.Car = car
+		m.a.records.save()
+	case s == "enter" && m.gRow == 0:
+		c := cars[m.gModel]
+		switch {
+		case rec.Rewards.Owns(c.ID, carItems):
+			car.Model = c.ID
+			rec.Car = car
+			m.a.records.save()
+			m.a.play(m.id, arcade.SoundSelect)
+			m.a.changed(m.ch) // your lane changes too
+			return
+		case rec.Rewards.Passes > 0:
+			rec.Rewards.Deal(carItems, m.a.rnd)
+			m.a.records.save()
+			m.draftSel = 1
+			m.a.play(m.id, arcade.SoundSelect)
+			m.go_(scrDraft)
+			return
 		}
-		return lipgloss.Color(hex)
+		m.a.play(m.id, arcade.SoundMistake)
+		return
+	case s == "enter":
+		m.a.play(m.id, arcade.SoundSelect)
+		m.go_(scrMenu)
+		return
+	case s == "c":
+		m.a.play(m.id, arcade.SoundSelect)
+		m.go_(scrShowroom)
+		return
+	case s == "esc":
+		m.a.play(m.id, arcade.SoundBack)
+		m.go_(scrMenu)
+		return
+	default:
+		return
 	}
-	purple, fg, comment := c("purple", "#bd93f9"), c("foreground", "#f8f8f2"), c("comment", "#6272a4")
-	s := lipgloss.NewStyle()
-	return styles{
-		title:  s.Bold(true).Foreground(purple),
-		fg:     s.Foreground(fg),
-		dim:    s.Foreground(comment),
-		done:   s.Foreground(fg).Bold(true),
-		wrong:  s.Foreground(c("background", "#282a36")).Background(c("red", "#ff5555")),
-		cursor: s.Foreground(purple).Bold(true).Underline(true),
-		good:   s.Foreground(c("green", "#50fa7b")),
-		warn:   s.Foreground(c("yellow", "#f1fa8c")).Bold(true),
-		bad:    s.Foreground(c("red", "#ff5555")).Bold(true),
-		accent: s.Foreground(c("cyan", "#8be9fd")),
-		vine:   s.Foreground(purple),
+	m.a.play(m.id, arcade.SoundBlip)
+}
+
+func (m *model) draftKey(s string) {
+	if !m.revealAt.IsZero() {
+		return
+	}
+	rec := m.rec()
+	offer := rec.Rewards.Deal(carItems, m.a.rnd)
+	switch s {
+	case "left", "h":
+		m.draftSel = (m.draftSel + len(offer) - 1) % max(1, len(offer))
+		m.a.play(m.id, arcade.SoundBlip)
+	case "right", "l":
+		m.draftSel = (m.draftSel + 1) % max(1, len(offer))
+		m.a.play(m.id, arcade.SoundBlip)
+	case "enter":
+		if m.draftSel >= len(offer) {
+			return
+		}
+		id := offer[m.draftSel]
+		m.revealOffer = append([]string(nil), offer...)
+		if !rec.Rewards.Pick(id) {
+			return
+		}
+		car := m.a.records.car(m.id)
+		car.Model = id
+		rec.Car = car
+		m.a.records.save()
+		for i, c := range cars {
+			if c.ID == id {
+				m.gModel = i
+			}
+		}
+		m.revealID, m.revealAt = id, m.a.now()
+		m.a.play(m.id, arcade.SoundRecord)
+		m.a.startTicker()
+		if m.a.sendRecord != nil {
+			m.a.sendRecord(m.id)
+		}
+	case "esc":
+		m.a.play(m.id, arcade.SoundBack)
+		m.go_(scrGarage)
 	}
 }
 
+// optionRows are the options screen's rows.
+var optionRows = []string{"SOUND", "VOLUME", "EFFECTS", "COUNTDOWN BEEPS", "BACK"}
+
+func (m *model) optionsKey(s string) {
+	rec := m.rec()
+	o := &rec.Options
+	d := map[string]int{"left": -1, "h": -1, "right": 1, "l": 1, "enter": 1}[s]
+	switch {
+	case s == "up" || s == "k":
+		m.op = (m.op + len(optionRows) - 1) % len(optionRows)
+	case s == "down" || s == "j":
+		m.op = (m.op + 1) % len(optionRows)
+	case s == "esc" || (s == "enter" && optionRows[m.op] == "BACK"):
+		m.a.play(m.id, arcade.SoundBack)
+		m.go_(scrMenu)
+		return
+	case d != 0:
+		switch optionRows[m.op] {
+		case "SOUND":
+			o.Mute = !o.Mute
+		case "VOLUME":
+			o.Volume = max(1, min(10, o.volume()+d))
+		case "EFFECTS":
+			o.Effects = (o.Effects + 3 + d) % 3
+		case "COUNTDOWN BEEPS":
+			o.NoBeeps = !o.NoBeeps
+		}
+		m.a.records.save()
+	default:
+		return
+	}
+	m.a.play(m.id, arcade.SoundBlip)
+}
+
+// View draws the arcade screens, or the plain layout in a small pane.
 func (m *model) View() string {
 	w, h := m.w, m.h
 	if w <= 0 {
@@ -164,353 +433,111 @@ func (m *model) View() string {
 	if h <= 0 {
 		h = 24
 	}
+	if w < 64 || h < 24 {
+		return m.smallView(w, h)
+	}
+	var theme *wire.PaneTheme
+	if m.v != nil {
+		theme = m.v.Theme
+	}
+	c := arcade.New(w, h, arcade.NewPalette(theme))
+	f := frame{c: c, ox: max(0, (w-80)/2), cw: min(w, 80), h: h}
+	switch m.scr {
+	case scrTitle:
+		m.drawTitle(f)
+	case scrMenu:
+		m.drawMenu(f)
+	case scrRace, scrPractice:
+		m.drawRace(f)
+	case scrGarage:
+		m.drawGarage(f)
+	case scrDraft:
+		m.drawDraft(f)
+	case scrShowroom:
+		m.drawShowroom(f)
+	case scrHOF:
+		m.drawHOF(f)
+	case scrHowTo:
+		m.drawHowTo(f)
+	case scrOptions:
+		m.drawOptions(f)
+	}
+	return c.String()
+}
+
+// smallView is for panes under 64 x 24: the races use the plain layout,
+// and the menus become plain lists.
+func (m *model) smallView(w, h int) string {
+	if m.scr == scrRace || m.scr == scrPractice {
+		return m.compactView()
+	}
 	st := m.styles()
-	r := m.a.race(m.ch)
-	var out []string
-	out = append(out, m.header(st, r, w), "")
-	switch r.phase {
-	case idle:
-		out = append(out, m.lobby(st, w)...)
-	case finished:
-		out = append(out, m.track(st, r, w)...)
-		out = append(out, "")
-		out = append(out, m.results(st, r, w)...)
-	default:
-		out = append(out, m.track(st, r, w)...)
-		out = append(out, "")
-		out = append(out, m.status(st, r)...)
-		out = append(out, "")
-		out = append(out, m.passage(st, r, w)...)
-	}
-	// the finish timer and the hints sit at the bottom of the pane
-	bottom := []string{st.dim.Render(m.hint(r))}
-	if left, on := r.FinishLeft(); on {
-		style := st.warn
-		if left <= 5*time.Second {
-			style = st.bad
-		}
-		bottom = append([]string{" " + style.Render(fmt.Sprintf("⏱ %s left to finish", clock(left+time.Second-1)))}, bottom...)
-	}
-	if pad := h - len(out) - len(bottom); pad > 0 {
-		out = append(out, make([]string, pad)...)
-	} else {
-		out = append(out, "")
-	}
-	out = append(out, bottom...)
-	return pane.Fit(strings.Join(out, "\n"), w, h)
-}
-
-func (m *model) header(st styles, r *race, w int) string {
-	left := st.title.Render("🍇 Grape Race")
-	var right string
-	switch r.phase {
-	case countdown:
-		right = fmt.Sprintf("race %d · starts in %d", r.number, ceilSecs(r.startAt.Sub(r.now())))
-	case racing:
-		right = fmt.Sprintf("race %d · %s left", r.number, clock(r.TimeLeft()+time.Second-1))
-	case finished:
-		right = fmt.Sprintf("race %d · results", r.number)
-	}
-	right = st.dim.Render(right)
-	gap := w - lipgloss.Width(left) - lipgloss.Width(right) - 1
-	if gap < 1 {
-		return left
-	}
-	return " " + left + strings.Repeat(" ", gap-1) + right
-}
-
-func (m *model) lobby(st styles, w int) []string {
-	text := []string{
-		"Race the room. Press Enter and a countdown starts; everyone who presses Enter before GO joins in. Type the passage as fast as you can.",
-		"",
-		"Mistakes turn red and have to be fixed before you can finish. Fastest clean finish wins.",
-	}
-	if m.standalone {
-		text = []string{
-			"Type the passage as fast as you can. Mistakes turn red and have to be fixed before you can finish.",
-			"",
-			"Press Enter to start.",
+	lines := []string{" " + st.title.Render("🍇 Grape Race"), ""}
+	add := func(s string) { lines = append(lines, s) }
+	pick := func(i, sel int, s string) {
+		if i == sel {
+			add(" " + st.title.Render("▶ ") + st.warn.Render(s))
+		} else {
+			add("   " + st.fg.Render(s))
 		}
 	}
-	var out []string
-	for _, t := range text {
-		for _, l := range wrapText(t, min(w-2, 72)) {
-			out = append(out, " "+st.fg.Render(l))
+	car := m.a.records.car(m.id)
+	rec := m.rec()
+	switch m.scr {
+	case scrTitle:
+		add(" " + st.fg.Render("A typing race. Press Enter."))
+	case scrMenu:
+		for i, it := range m.menuItems() {
+			pick(i, m.menu, it)
 		}
-	}
-	return append(out, m.leaders(st)...)
-}
-
-// leaders is the server's fastest typists (your own bests, standalone).
-func (m *model) leaders(st styles) []string {
-	top := m.a.records.top(5)
-	if len(top) == 0 {
-		return nil
-	}
-	title := "Fastest on this server"
-	if m.standalone {
-		title = "Your best"
-		if r := m.a.records.get(m.id); r != nil {
-			return []string{"", " " + st.title.Render(title) + "  " + st.fg.Render(fmt.Sprintf("%.0f wpm over %d races", r.BestWPM, r.Races))}
+	case scrGarage:
+		c := cars[m.gModel]
+		name := c.Name
+		if !rec.Rewards.Owns(c.ID, carItems) {
+			name = "? ? ? (" + c.Tier.Name() + ", locked)"
 		}
-	}
-	out := []string{"", " " + st.title.Render(title)}
-	for i, b := range top {
-		out = append(out, fmt.Sprintf(" %s %s %s", st.dim.Render(fmt.Sprintf("%d.", i+1)), st.fg.Render(fmt.Sprintf("%-16s", trunc(b.Name, 16))), st.accent.Render(fmt.Sprintf("%3.0f wpm", b.WPM))))
-	}
-	return out
-}
-
-// track draws each racer's grape rolling down the vine.
-func (m *model) track(st styles, r *race, w int) []string {
-	racers := r.Standings()
-	watched := m.target(r)
-	nameW := 4
-	for _, p := range racers {
-		nameW = max(nameW, min(14, lipgloss.Width(p.Name)))
-	}
-	const statW = 13 // " 123 wpm  1st"
-	lane := w - 3 - nameW - 1 - statW
-	var out []string
-	for i, p := range racers {
-		if i == 8 {
-			out = append(out, st.dim.Render(fmt.Sprintf("   and %d more", len(racers)-8)))
+		pick(0, m.gRow, "MODEL  ◂ "+name+" ▸")
+		pick(1, m.gRow, "PAINT  ◂ "+arcade.PaintNames[car.Paint]+" ▸")
+		pick(2, m.gRow, fmt.Sprintf("NUMBER ◂ %02d ▸", car.Number))
+		add("")
+		add(" " + st.dim.Render(fmt.Sprintf("%d of %d cars · %d Pit Passes", rec.Rewards.Count(carItems), len(carItems), rec.Rewards.Passes)))
+	case scrDraft:
+		if !m.revealAt.IsZero() {
+			add(" " + st.good.Render("UNLOCKED: "+carByID[m.revealID].Name))
 			break
 		}
-		mark := "  "
-		name := st.fg.Render(fmt.Sprintf("%-*s", nameW, trunc(p.Name, nameW)))
-		switch {
-		case p.ID == m.id:
-			mark, name = st.title.Render("▶ "), st.done.Render(fmt.Sprintf("%-*s", nameW, trunc(p.Name, nameW)))
-		case r.phase == racing && watched != nil && p.ID == watched.ID:
-			mark = st.accent.Render("▷ ")
+		for i, id := range rec.Rewards.Deal(carItems, m.a.rnd) {
+			c := carByID[id]
+			pick(i, m.draftSel, c.Tier.Stars()+" "+c.Name)
 		}
-		line := " " + mark + name + " "
-		if lane >= 8 {
-			line += vine(st, lane, float64(r.correct(p))/float64(max(1, len(r.text))))
+	case scrOptions:
+		for i, row := range optionRows {
+			pick(i, m.op, row+"  "+m.optionValue(row))
 		}
-		place := "   "
-		switch {
-		case p.done && p.Place == 1:
-			place = st.warn.Render("1st")
-		case p.done:
-			place = st.fg.Render(ordinal(p.Place))
-		case p.Out == "idle" && r.phase == racing:
-			place = st.dim.Render("idle")
-		case p.Out != "":
-			place = st.dim.Render("DNF")
-		}
-		line += st.accent.Render(fmt.Sprintf(" %3.0f wpm", r.LiveWPM(p))) + "  " + place
-		out = append(out, line)
-	}
-	return out
-}
-
-// vine is a lane of width cells with the grape at progress (0..1).
-func vine(st styles, width int, progress float64) string {
-	room := width - 2 // the grape is two cells wide
-	pos := min(room, int(progress*float64(room)+0.5))
-	return st.vine.Render(strings.Repeat("━", pos)) + "🍇" + st.dim.Render(strings.Repeat("┄", room-pos))
-}
-
-func (m *model) status(st styles, r *race) []string {
-	p := r.racer(m.id)
-	if r.phase == countdown {
-		if p != nil {
-			return []string{" " + st.warn.Render(fmt.Sprintf("Get ready… %d", ceilSecs(r.startAt.Sub(r.now()))))}
-		}
-		return []string{" " + st.fg.Render("A race is about to start. Press Enter to join!")}
-	}
-	var out []string
-	switch {
-	case r.active(m.id) != nil && r.IdleLeft(p) <= idleOut-idleWarn:
-		return []string{" " + st.bad.Render(fmt.Sprintf("Still there? You're out in %ds unless you type.", ceilSecs(r.IdleLeft(p))))}
-	case r.active(m.id) != nil:
-		return []string{" " + st.warn.Render("GO!") + "  " + st.fg.Render(fmt.Sprintf("%.0f wpm · %.0f%% accuracy · %d/%d", r.LiveWPM(p), accuracy(p)*100, r.correct(p), len(r.text)))}
-	case p != nil && p.done:
-		out = append(out, " "+st.good.Render(fmt.Sprintf("Finished %s! %.0f wpm, %.0f%% accuracy.", ordinal(p.Place), p.WPM, p.Accuracy*100)))
-	case p != nil && p.Out == "idle":
-		out = append(out, " "+st.dim.Render("You're out: no keys for 20 seconds."))
-	case p == nil:
-		out = append(out, " "+st.dim.Render("Spectating."))
-	}
-	if t := m.target(r); t != nil && t.ID != m.id {
-		out = append(out, " "+st.accent.Render("Watching "+t.Name)+st.fg.Render(fmt.Sprintf(" · %.0f wpm · %d/%d", r.LiveWPM(t), r.correct(t), len(r.text))))
-	}
-	if r.Queued(m.id) {
-		out = append(out, " "+st.good.Render("You're in the next race."))
-	}
-	return out
-}
-
-// passage draws the text: typed (bright), mistakes (red), the next
-// character (underlined), the rest (dim).
-func (m *model) passage(st styles, r *race, w int) []string {
-	width := min(w-2, 78)
-	if width < 10 {
-		width = max(1, w)
-	}
-	p := m.target(r)
-	good, typed := 0, 0
-	if p != nil && r.phase != countdown {
-		good, typed = r.correct(p), len(p.typed)
-	}
-	classes := []lipgloss.Style{st.dim, st.done, st.wrong, st.cursor}
-	classAt := func(i int) int {
-		switch {
-		case p == nil || r.phase == countdown:
-			return 0
-		case i < good:
-			return 1
-		case i < typed:
-			return 2
-		case i == typed && !p.done && p.Out == "":
-			return 3
-		}
-		return 0
-	}
-	var out []string
-	for _, ln := range wrapRanges(r.text, width) {
-		var b strings.Builder
-		b.WriteString(" ")
-		start := ln[0]
-		for i := ln[0]; i <= ln[1]; i++ {
-			if i == ln[1] || classAt(i) != classAt(start) {
-				b.WriteString(classes[classAt(start)].Render(string(r.text[start:i])))
-				start = i
-			}
-		}
-		out = append(out, b.String())
-	}
-	return out
-}
-
-func (m *model) results(st styles, r *race, w int) []string {
-	out := []string{" " + st.title.Render("Results")}
-	for _, p := range r.Standings() {
-		if !p.done {
-			why := "out of time"
-			if p.Out == "idle" {
-				why = "idle"
-			}
-			out = append(out, st.dim.Render(fmt.Sprintf("  DNF  %-20s %3.0f wpm  %3d%% done  (%s)", trunc(p.Name, 20), r.LiveWPM(p), r.correct(p)*100/max(1, len(r.text)), why)))
-			continue
-		}
-		line := fmt.Sprintf("  %-4s %-20s %3.0f wpm  %3.0f%%  %s", ordinal(p.Place), trunc(p.Name, 20), p.WPM, p.Accuracy*100, clock(p.doneAt.Sub(r.startAt)))
-		if p.Place == 1 {
-			line = st.warn.Render(line)
-		} else {
-			line = st.fg.Render(line)
-		}
-		switch {
-		case p.TooFast:
-			line += "  " + st.dim.Render("too fast to count")
-		case p.NewBest:
-			line += "  " + st.good.Render("new best!")
-		}
-		out = append(out, line)
-	}
-	if next := r.next; len(next) > 0 && !r.nextAt.IsZero() {
-		var names []string
-		for _, q := range next {
-			names = append(names, q.Name)
-		}
-		wait := max(0, r.nextAt.Sub(r.now()))
-		out = append(out, "", " "+st.warn.Render(fmt.Sprintf("Next race in %ds: ", ceilSecs(wait)))+st.fg.Render(trunc(strings.Join(names, ", "), max(10, w-20))))
-	}
-	return append(out, m.leaders(st)...)
-}
-
-func (m *model) hint(r *race) string {
-	var h string
-	switch {
-	case r.phase == idle:
-		h = " Enter start a race"
-	case r.phase == finished && len(r.next) > 0:
-		h = " Enter start it now"
-	case r.phase == finished:
-		h = " Enter race again"
-	case r.phase == countdown && r.racer(m.id) == nil:
-		h = " Enter join the race"
-	case r.phase == countdown:
-		h = " Type when it says GO!"
-	case r.active(m.id) != nil:
-		h = " Backspace fixes a mistake · Ctrl+W deletes a word"
-	case r.Queued(m.id):
-		h = " ←/→ watch someone else"
 	default:
-		h = " Enter join the next race · ←/→ watch someone else"
+		add(" " + st.dim.Render("Make the pane bigger (64 x 24) for this screen."))
 	}
-	if m.standalone && r.active(m.id) == nil {
-		h += " · Esc quit"
-	}
-	return h
+	lines = append(lines, "", st.dim.Render(" ↑↓ ←→ Enter · Esc back"))
+	return pane.Fit(strings.Join(lines, "\n"), w, h)
 }
 
-// wrapRanges splits text into lines of at most width runes, breaking after
-// spaces; each range is [start, end).
-func wrapRanges(text []rune, width int) [][2]int {
-	var out [][2]int
-	start := 0
-	for start < len(text) {
-		end := min(len(text), start+width)
-		if end < len(text) {
-			if i := lastSpace(text[start:end]); i > 0 {
-				end = start + i + 1
-			}
+func (m *model) optionValue(row string) string {
+	o := m.rec().Options
+	switch row {
+	case "SOUND":
+		if o.Mute {
+			return "◂ OFF ▸"
 		}
-		out = append(out, [2]int{start, end})
-		start = end
-	}
-	return out
-}
-
-func lastSpace(rs []rune) int {
-	for i := len(rs) - 1; i >= 0; i-- {
-		if rs[i] == ' ' {
-			return i
+		return "◂ ON ▸"
+	case "VOLUME":
+		return strings.Repeat("▮", o.volume()) + strings.Repeat("▯", 10-o.volume()) + fmt.Sprintf("  %d%%", o.volume()*10)
+	case "EFFECTS":
+		return [...]string{"◂ FULL ▸", "◂ CALM ▸", "◂ OFF ▸"}[o.Effects]
+	case "COUNTDOWN BEEPS":
+		if o.NoBeeps {
+			return "[ ]"
 		}
+		return "[■]"
 	}
-	return -1
+	return ""
 }
-
-func wrapText(s string, width int) []string {
-	var out []string
-	for _, r := range wrapRanges([]rune(s), max(1, width)) {
-		out = append(out, strings.TrimRight(string([]rune(s)[r[0]:r[1]]), " "))
-	}
-	if len(out) == 0 {
-		return []string{""}
-	}
-	return out
-}
-
-func trunc(s string, n int) string {
-	rs := []rune(s)
-	if len(rs) <= n {
-		return s
-	}
-	return string(rs[:max(0, n-1)]) + "…"
-}
-
-func ordinal(n int) string {
-	suffix := "th"
-	switch {
-	case n%100 >= 11 && n%100 <= 13:
-	case n%10 == 1:
-		suffix = "st"
-	case n%10 == 2:
-		suffix = "nd"
-	case n%10 == 3:
-		suffix = "rd"
-	}
-	return fmt.Sprintf("%d%s", n, suffix)
-}
-
-func clock(d time.Duration) string {
-	s := int(d.Seconds())
-	return fmt.Sprintf("%d:%02d", s/60, s%60)
-}
-
-// ceilSecs is d in whole seconds, rounded up: a countdown reads 5 at 5s.
-func ceilSecs(d time.Duration) int { return int((max(0, d) + time.Second - 1) / time.Second) }

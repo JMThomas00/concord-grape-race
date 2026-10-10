@@ -166,11 +166,16 @@ func TestRecordsAndAchievements(t *testing.T) {
 	me := uuid.New()
 	at := time.Now()
 	p := &racer{ID: me, Name: "me", WPM: 65, Place: 1, keys: 200}
-	if !rs.add(p, 2, 200, at) {
+	e := rs.add(p, 2, 200, at)
+	if !e.Best {
 		t.Fatal("first race should be a new best")
 	}
-	if rs.add(&racer{ID: me, Name: "me", WPM: 50, Place: 2, keys: 10, mistakes: 1}, 2, 200, at) {
-		t.Fatal("a slower race isn't a best")
+	// first race, 40, 60, spotless and first win: five new achievements, a pass each
+	if e.Passes != 5 || e.Why != "5 new achievements" {
+		t.Fatalf("passes %d (%q)", e.Passes, e.Why)
+	}
+	if e := rs.add(&racer{ID: me, Name: "me", WPM: 50, Place: 2, keys: 10, mistakes: 1}, 2, 200, at); e.Best || e.Passes != 0 {
+		t.Fatalf("a slower race with nothing new: %+v", e)
 	}
 	r := rs.get(me)
 	for _, id := range []string{achFirst, ach40, ach60, achSpotless, achFirstWin} {
@@ -211,4 +216,40 @@ func keyRunes(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes
 
 func keyType(name string) tea.KeyMsg {
 	return map[string]tea.KeyMsg{"left": {Type: tea.KeyLeft}, "right": {Type: tea.KeyRight}}[name]
+}
+
+// TestPitPasses: three wins in a row and every ten races each earn a pass,
+// and passes stop once every car is unlocked.
+func TestPitPasses(t *testing.T) {
+	rs := loadRecords(t.TempDir())
+	me := uuid.New()
+	at := time.Now()
+	win := func() earned {
+		return rs.add(&racer{ID: me, Name: "me", WPM: 30, Place: 1, keys: 50, mistakes: 1}, 2, 100, at)
+	}
+	win() // first race + first win achievements
+	if e := win(); e.Passes != 0 {
+		t.Fatalf("second win: %+v", e)
+	}
+	if e := win(); e.Passes != 1 || e.Why != "3 wins in a row" {
+		t.Fatalf("third win in a row: %+v", e)
+	}
+	rs.add(&racer{ID: me, Name: "me", WPM: 30, Place: 2, keys: 50, mistakes: 1}, 2, 100, at) // streak broken
+	if rs.get(me).WinStreak != 0 {
+		t.Fatal("a loss should end the streak")
+	}
+	for rs.get(me).Races < 9 {
+		rs.add(&racer{ID: me, Name: "me", WPM: 30, Place: 1, keys: 50, mistakes: 1}, 1, 100, at) // solo: no wins
+	}
+	if e := rs.add(&racer{ID: me, Name: "me", WPM: 30, Place: 1, keys: 50, mistakes: 1}, 1, 100, at); e.Passes != 1 || e.Why != "10 races finished" {
+		t.Fatalf("tenth race: %+v", e)
+	}
+	r := rs.get(me)
+	r.Rewards.Passes = 0
+	for _, c := range carItems {
+		r.Rewards.Owned = append(r.Rewards.Owned, c.ID)
+	}
+	if r.Rewards.Grant(1, carItems) != 0 {
+		t.Fatal("no passes once everything is unlocked")
+	}
 }

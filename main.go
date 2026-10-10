@@ -3,6 +3,8 @@
 // on its own, it's solo practice in your terminal.
 package main
 
+//go:generate go run ./tools/gensounds
+
 import (
 	"context"
 	"errors"
@@ -43,6 +45,8 @@ func handler(a *app) plugin.Handler {
 	h := host.Handler()
 	h.OnReady = func(c *plugin.Conn, _ *wire.User) {
 		a.post = c.Post
+		a.sendTo = func(id uuid.UUID) { host.Send(id, redrawMsg{}) }
+		a.sound = func(ch, viewer uuid.UUID, asset string, vol float64) { _ = c.PlaySound(ch, viewer, asset, vol) }
 		a.sendRecord = func(id uuid.UUID) { _ = c.SendRecord(a.records.wire(id)) }
 	}
 	h.OnChannel = func(_ *plugin.Conn, ch wire.Channel) {
@@ -73,6 +77,7 @@ func standalone() {
 	m.standalone = true
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	a.post = func(fn func()) { p.Send(runMsg(fn)) }
+	a.startTicker() // the title screen's attract mode
 	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
 	}

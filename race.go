@@ -71,6 +71,12 @@ const (
 // maxWrong is how far past a mistake you can type before it must be fixed.
 const maxWrong = 8
 
+// falsePenalty is added to the time of anyone who types before green.
+const falsePenalty = time.Second
+
+// spinFor is how long a mistake spins your car out.
+const spinFor = 700 * time.Millisecond
+
 // maxWPM is faster than any person sustains: a finish above it is a
 // script or a paste, so it doesn't count toward records.
 const maxWPM = 250
@@ -107,8 +113,14 @@ type racer struct {
 	typed    []rune
 	keys     int // characters typed, mistakes included
 	mistakes int
-	NewBest  bool // set when the finish beat their record
-	TooFast  bool // above maxWPM: shown, never recorded
+	NewBest  bool   // set when the finish beat their record
+	TooFast  bool   // above maxWPM: shown, never recorded
+	Jumped   bool   // typed before green: falsePenalty is added to their time
+	Passes   int    // Pit Passes this finish earned
+	PassWhy  string // why, for the results screen
+	streak   int    // clean keys in a row
+	best     int    // best streak this race
+	spinAt   time.Time
 	done     bool
 	doneAt   time.Time
 	lastKey  time.Time // last keystroke (GO, before the first)
@@ -317,12 +329,39 @@ func (r *race) Type(id uuid.UUID, ch rune) bool {
 	p.keys++
 	if good != len(p.typed) || len(p.typed) >= len(r.text) || r.text[len(p.typed)] != ch {
 		p.mistakes++
+		p.streak, p.spinAt = 0, r.now()
+	} else {
+		p.streak++
+		p.best = max(p.best, p.streak)
 	}
 	p.typed = append(p.typed, ch)
 	if len(p.typed) == len(r.text) && r.correct(p) == len(r.text) {
 		r.finish(p)
 	}
 	return true
+}
+
+// Jump records a key pressed during the countdown: a red light. It reports
+// whether this was the racer's first jump.
+func (r *race) Jump(id uuid.UUID) bool {
+	p := r.racer(id)
+	if p == nil || r.phase != countdown || p.Jumped {
+		return false
+	}
+	p.Jumped = true
+	return true
+}
+
+// Spinning reports whether a recent mistake has the racer's car spun out.
+func (r *race) Spinning(p *racer) bool { return !p.spinAt.IsZero() && r.now().Sub(p.spinAt) < spinFor }
+
+// Time is the racer's finishing time, penalty included.
+func (r *race) Time(p *racer) time.Duration {
+	d := p.doneAt.Sub(r.startAt)
+	if p.Jumped {
+		d += falsePenalty
+	}
+	return d
 }
 
 // Backspace removes the last typed character.
@@ -363,7 +402,7 @@ func (r *race) finish(p *racer) {
 		}
 	}
 	p.Place = places
-	p.WPM = wpm(len(r.text), p.doneAt.Sub(r.startAt))
+	p.WPM = wpm(len(r.text), r.Time(p))
 	p.Accuracy = accuracy(p)
 	p.TooFast = p.WPM > maxWPM
 	if r.onFinish != nil {
