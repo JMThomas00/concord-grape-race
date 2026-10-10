@@ -67,18 +67,19 @@ func (m *model) raceTag() string {
 func (m *model) drawTitle(f frame) {
 	c, anim := f.c, m.animated()
 	m.topbar(f, m.raceTag())
-	// the logo, the line under it, PRESS ENTER, the channel's news and the
-	// road are one block (16 rows), centred in the pane
-	top := max(2, (f.h-1-16)/2)
+	// the road sits near the bottom, just above the footer, with the
+	// channel's news over it; the logo, the line under it and PRESS ENTER
+	// (9 rows) are centred in the space above
+	road := f.h - 7
+	c.CenterIn(f.ox, f.cw, road-2, m.channelLine(), "cyan", "", false)
+	top := max(2, (road-3-9)/2+1)
 	m.logo(f, "GRAPE RACE", top*2, nil)
 	c.CenterIn(f.ox, f.cw, top+5, "·  A   T Y P I N G   R A C E  ·", "dim", "", false)
 	if m.blink() {
 		c.CenterIn(f.ox, f.cw, top+8, "▶  PRESS ENTER  ◀", "yellow", "", true)
 	}
-	c.CenterIn(f.ox, f.cw, top+10, m.channelLine(), "cyan", "", false)
 	// attract mode: cars crossing a road that runs the whole width of the
 	// pane, so they drive off its edge rather than off the end of the road
-	road := top + 12
 	c.Fill(0, road, c.W, "▁", "line", "")
 	c.Fill(0, road+3, c.W, "▔", "line", "")
 	off := 0
