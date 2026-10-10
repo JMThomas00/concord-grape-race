@@ -1,0 +1,102 @@
+# Concord reads this to install and run Grape Stomp. Admins never edit it: the
+# settings below appear as forms in Concord.
+
+[plugin]
+id = "concord-stomp"
+name = "Grape Stomp"
+version = "0.1.0"            # release.go stamps the git tag here
+description = "A typing race: everyone in the channel types the same passage, and each grape rolls down its vine as they go."
+author = "JMThomas00"
+source_url = "https://github.com/JMThomas00/concord-stomp"
+
+[process]
+restart_on_crash = true
+max_restarts = 5
+
+[process.entrypoint.linux]
+bin = "concord-stomp"
+[process.entrypoint.darwin]
+bin = "concord-stomp"
+[process.entrypoint.windows]
+bin = "concord-stomp.exe"
+
+[[channel_kind]]
+kind = "stomp"
+display_name = "Grape Stomp"
+icon = "🍇"
+remote_pane = true
+
+  [[channel_kind.create_field]]
+  key = "length"
+  label = "Passage length"
+  type = "select"
+  options = ["mixed", "short", "medium", "long"]
+  default = "mixed"
+  help = "Short is a sentence or two, long is a full paragraph; mixed picks any"
+
+  [[channel_kind.create_field]]
+  key = "countdown"
+  label = "Countdown (seconds)"
+  type = "select"
+  options = ["3", "5", "10", "15"]
+  default = "5"
+  help = "How long others have to press Enter and join once someone starts a race"
+
+[leaderboard]
+stat = "best_wpm"
+label = "Best WPM"
+
+[[achievement]]
+id = "first_stomp"
+name = "First Stomp"
+description = "Finish a race"
+tier = "bronze"
+
+[[achievement]]
+id = "wpm_40"
+name = "Ripe"
+description = "Finish a race at 40 words per minute or faster"
+tier = "bronze"
+
+[[achievement]]
+id = "wpm_60"
+name = "Juicy"
+description = "Finish a race at 60 words per minute or faster"
+tier = "silver"
+
+[[achievement]]
+id = "wpm_80"
+name = "Vintage"
+description = "Finish a race at 80 words per minute or faster"
+tier = "gold"
+
+[[achievement]]
+id = "wpm_100"
+name = "Grand Cru"
+description = "Finish a race at 100 words per minute or faster"
+tier = "gold"
+secret = true
+
+[[achievement]]
+id = "spotless"
+name = "Spotless"
+description = "Finish a medium or long passage without a single mistake"
+tier = "silver"
+
+[[achievement]]
+id = "first_win"
+name = "First Press"
+description = "Win a race against at least one other person"
+tier = "bronze"
+
+[[achievement]]
+id = "wins_10"
+name = "Head Vintner"
+description = "Win 10 races"
+tier = "silver"
+
+[[achievement]]
+id = "races_50"
+name = "Purple Feet"
+description = "Finish 50 races"
+icon = "🦶"

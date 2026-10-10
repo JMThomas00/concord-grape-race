@@ -1,0 +1,5 @@
+/dist/
+/concord-stomp
+/concord-stomp.exe
+# the key that signs client code: keep it secret (concord-plugin keygen)
+/publisher.key
