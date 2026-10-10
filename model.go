@@ -143,7 +143,7 @@ func (m *model) View() string {
 }
 
 func (m *model) header(st styles, r *race, w int) string {
-	left := st.title.Render("🍇 Grape Stomp")
+	left := st.title.Render("🍇 Grape Race")
 	var right string
 	switch r.phase {
 	case countdown:

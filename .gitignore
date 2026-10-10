@@ -1,5 +1,5 @@
 /dist/
-/concord-stomp
-/concord-stomp.exe
+/concord-grape-race
+/concord-grape-race.exe
 # the key that signs client code: keep it secret (concord-plugin keygen)
 /publisher.key

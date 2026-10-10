@@ -1,4 +1,4 @@
-module github.com/JMThomas00/concord-stomp
+module github.com/JMThomas00/concord-grape-race
 
 go 1.24.2
 

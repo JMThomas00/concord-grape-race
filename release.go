@@ -1,7 +1,7 @@
 //go:build ignore
 
-// release builds concord-stomp for every OS/CPU a Concord server runs on and packs
-// each into dist/concord-stomp_<os>_<arch>.zip -- the layout Concord's installer
+// release builds concord-grape-race for every OS/CPU a Concord server runs on and packs
+// each into dist/concord-grape-race_<os>_<arch>.zip -- the layout Concord's installer
 // looks for when an admin installs from this repo's GitHub releases.
 //
 //	go run release.go            # version from the latest git tag
@@ -40,7 +40,7 @@ func main() {
 	check(os.MkdirAll("dist", 0o755))
 	for _, t := range targets {
 		goos, goarch := t[0], t[1]
-		bin := "concord-stomp"
+		bin := "concord-grape-race"
 		if goos == "windows" {
 			bin += ".exe"
 		}
@@ -52,12 +52,12 @@ func main() {
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		check(cmd.Run())
 
-		zipPath := filepath.Join("dist", fmt.Sprintf("concord-stomp_%s_%s.zip", goos, goarch))
+		zipPath := filepath.Join("dist", fmt.Sprintf("concord-grape-race_%s_%s.zip", goos, goarch))
 		f, err := os.Create(zipPath)
 		check(err)
 		zw := zip.NewWriter(f)
 		add := func(name string, data []byte, mode os.FileMode) {
-			h := &zip.FileHeader{Name: "concord-stomp/" + name, Method: zip.Deflate, Modified: time.Now()}
+			h := &zip.FileHeader{Name: "concord-grape-race/" + name, Method: zip.Deflate, Modified: time.Now()}
 			h.SetMode(mode)
 			w, err := zw.CreateHeader(h)
 			check(err)

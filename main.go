@@ -1,4 +1,4 @@
-// Grape Stomp: a typing race. In a Concord channel, everyone viewing races
+// Grape Race: a typing race. In a Concord channel, everyone viewing races
 // the same passage live, each grape rolling down its vine as they type. Run
 // on its own, it's solo practice in your terminal.
 package main
@@ -60,7 +60,7 @@ func handler(a *app) plugin.Handler {
 func standalone() {
 	dir := ""
 	if d, err := os.UserConfigDir(); err == nil {
-		dir = filepath.Join(d, "concord-stomp")
+		dir = filepath.Join(d, "concord-grape-race")
 	}
 	a := newApp(loadRecords(dir), time.Now)
 	a.countdown = 3 * time.Second

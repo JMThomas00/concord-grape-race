@@ -16,7 +16,7 @@ import (
 
 // Achievement ids, declared in plugin.toml.
 const (
-	achFirst    = "first_stomp"
+	achFirst    = "first_race"
 	ach40       = "wpm_40"
 	ach60       = "wpm_60"
 	ach80       = "wpm_80"

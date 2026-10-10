@@ -27,7 +27,7 @@ func (c *atomicClock) add(d time.Duration) { c.ns.Add(int64(d)) }
 // TestRaceInConcord runs a two-person race through a fake Concord server:
 // one starts it, the other joins, both type, results and records follow.
 func TestRaceInConcord(t *testing.T) {
-	const text = "stomp the grapes"
+	const text = "chase the grapes"
 	saved := passages
 	passages = map[string][]string{"short": {text}}
 	defer func() { passages = saved }()
@@ -43,7 +43,7 @@ func TestRaceInConcord(t *testing.T) {
 	srv.WaitReady()
 
 	ch := uuid.New()
-	srv.Channel(wire.Channel{ID: ch, Name: "stomp", PluginConfig: map[string]string{"length": "short"}})
+	srv.Channel(wire.Channel{ID: ch, Name: "grape-race", PluginConfig: map[string]string{"length": "short"}})
 	alice := srv.Enter(ch, "alice", 80, 24)
 	bob := srv.Enter(ch, "bob", 80, 24)
 	small := srv.Enter(ch, "carol", 43, 17) // odd sizes catch overflow
@@ -70,7 +70,7 @@ func TestRaceInConcord(t *testing.T) {
 		won[u.ID] = true
 	}
 	if !won[achFirst] || !won[achFirstWin] {
-		t.Fatalf("bob should have First Stomp and First Press: %+v", rec.Unlocked)
+		t.Fatalf("bob should have First Race and First Press: %+v", rec.Unlocked)
 	}
 
 	clk.add(5 * time.Second)
@@ -136,11 +136,11 @@ func TestTooFastIsNotRecorded(t *testing.T) {
 	a.sendRecord = func(uuid.UUID) { sent++ }
 	r := a.race(uuid.Nil)
 	r.Join(me, "me", "short")
-	r.text = []rune("stomp the grapes")
+	r.text = []rune("chase the grapes")
 	clk.add(r.countdown)
 	r.Tick()
 	clk.add(100 * time.Millisecond)
-	typeAll(r, me, "stomp the grapes")
+	typeAll(r, me, "chase the grapes")
 	if p := r.racer(me); !p.done || !p.TooFast {
 		t.Fatalf("done=%v tooFast=%v wpm=%.0f", p.done, p.TooFast, p.WPM)
 	}

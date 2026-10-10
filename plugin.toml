@@ -1,28 +1,28 @@
-# Concord reads this to install and run Grape Stomp. Admins never edit it: the
+# Concord reads this to install and run Grape Race. Admins never edit it: the
 # settings below appear as forms in Concord.
 
 [plugin]
-id = "concord-stomp"
-name = "Grape Stomp"
+id = "concord-grape-race"
+name = "Grape Race"
 version = "0.1.0"            # release.go stamps the git tag here
 description = "A typing race: everyone in the channel types the same passage, and each grape rolls down its vine as they go."
 author = "JMThomas00"
-source_url = "https://github.com/JMThomas00/concord-stomp"
+source_url = "https://github.com/JMThomas00/concord-grape-race"
 
 [process]
 restart_on_crash = true
 max_restarts = 5
 
 [process.entrypoint.linux]
-bin = "concord-stomp"
+bin = "concord-grape-race"
 [process.entrypoint.darwin]
-bin = "concord-stomp"
+bin = "concord-grape-race"
 [process.entrypoint.windows]
-bin = "concord-stomp.exe"
+bin = "concord-grape-race.exe"
 
 [[channel_kind]]
-kind = "stomp"
-display_name = "Grape Stomp"
+kind = "race"
+display_name = "Grape Race"
 icon = "🍇"
 remote_pane = true
 
@@ -47,8 +47,8 @@ stat = "best_wpm"
 label = "Best WPM"
 
 [[achievement]]
-id = "first_stomp"
-name = "First Stomp"
+id = "first_race"
+name = "First Race"
 description = "Finish a race"
 tier = "bronze"
 
