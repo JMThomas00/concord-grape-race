@@ -75,6 +75,32 @@ const maxWrong = 8
 // script or a paste, so it doesn't count toward records.
 const maxWPM = 250
 
+// Timing rules, so a race always ends: nobody can hold a channel by walking
+// away, disconnecting or refusing to finish.
+const (
+	idleOut            = 20 * time.Second // no keys for this long: out of the race
+	idleWarn           = 10 * time.Second // when "Still there?" shows
+	resultsHold        = 5 * time.Second  // results stay up this long before a queued race starts
+	defaultFinishTimer = 15 * time.Second
+)
+
+// timeLimit is the whole race's limit, by passage length.
+func timeLimit(text []rune) time.Duration {
+	switch lengthOf(string(text)) {
+	case "short":
+		return time.Minute
+	case "medium":
+		return 2 * time.Minute
+	}
+	return 3 * time.Minute
+}
+
+// queued is someone waiting for the next race.
+type queued struct {
+	ID   uuid.UUID
+	Name string
+}
+
 type racer struct {
 	ID       uuid.UUID
 	Name     string
@@ -85,6 +111,9 @@ type racer struct {
 	TooFast  bool // above maxWPM: shown, never recorded
 	done     bool
 	doneAt   time.Time
+	lastKey  time.Time // last keystroke (GO, before the first)
+	Out      string    // why they stopped short: "idle" or "time"
+	outAt    time.Time
 	Place    int // 1-based, among those who finished
 	WPM      float64
 	Accuracy float64 // 0..1
@@ -95,11 +124,16 @@ type racer struct {
 type race struct {
 	phase     phase
 	number    int
+	length    string // the channel's passage length, for the next race
 	text      []rune
 	countdown time.Duration
-	startAt   time.Time // GO
-	deadline  time.Time
+	grace     time.Duration // the finish timer: how long the rest get once someone finishes
+	startAt   time.Time     // GO
+	deadline  time.Time     // the whole race's limit
+	finishBy  time.Time     // set by the first finish
+	nextAt    time.Time     // when the queued race starts, after the results
 	racers    []*racer
+	next      []queued // waiting for the next race
 	now       func() time.Time
 
 	// onFinish runs when a racer completes the passage, with how many raced.
@@ -107,54 +141,140 @@ type race struct {
 }
 
 func newRace(now func() time.Time) *race {
-	return &race{now: now, countdown: 5 * time.Second}
+	return &race{now: now, countdown: 5 * time.Second, grace: defaultFinishTimer}
 }
 
-// Join starts a countdown (when nothing is running) or joins the one in
-// progress. It reports whether anything changed.
+// Join starts a countdown (when nothing is running), joins the one counting
+// down, or, while a race is on, puts you in the next one. It reports
+// whether anything changed.
 func (r *race) Join(id uuid.UUID, name, length string) bool {
 	switch r.phase {
 	case idle, finished:
-		last := string(r.text)
-		*r = race{now: r.now, countdown: r.countdown, onFinish: r.onFinish, number: r.number + 1}
-		r.text = []rune(pickPassage(length, last))
-		r.phase = countdown
-		r.startAt = r.now().Add(r.countdown)
-		limit := max(time.Minute, time.Duration(float64(len(r.text))/1.25*float64(time.Second))) // 15 wpm
-		r.deadline = r.startAt.Add(limit)
+		r.start(length, append(r.next, queued{id, name}))
 	case countdown:
 		if r.racer(id) != nil {
 			return false
 		}
+		r.racers = append(r.racers, &racer{ID: id, Name: name, lastKey: r.startAt})
 	default:
-		return false
+		if r.active(id) != nil || r.Queued(id) {
+			return false
+		}
+		r.next = append(r.next, queued{id, name})
+		r.length = length
 	}
-	r.racers = append(r.racers, &racer{ID: id, Name: name})
 	return true
 }
 
-// Tick moves the race on with the clock: countdown to racing, racing to
-// finished once everyone is done or time runs out. It reports whether the
-// race is still live (worth ticking again).
-func (r *race) Tick() bool {
-	now := r.now()
-	if r.phase == countdown && !now.Before(r.startAt) {
-		r.phase = racing
+// start begins a countdown for a new passage with who as its racers.
+func (r *race) start(length string, who []queued) {
+	last := string(r.text)
+	*r = race{now: r.now, countdown: r.countdown, grace: r.grace, onFinish: r.onFinish, number: r.number + 1, length: length}
+	r.text = []rune(pickPassage(length, last))
+	r.phase = countdown
+	r.startAt = r.now().Add(r.countdown)
+	r.deadline = r.startAt.Add(timeLimit(r.text))
+	for _, q := range who {
+		if r.racer(q.ID) == nil {
+			r.racers = append(r.racers, &racer{ID: q.ID, Name: q.Name, lastKey: r.startAt})
+		}
 	}
-	if r.phase == racing && (r.allDone() || !now.Before(r.deadline)) {
-		r.phase = finished
-	}
-	return r.phase == countdown || r.phase == racing
 }
 
-func (r *race) allDone() bool {
+// Queued reports whether id is waiting for the next race.
+func (r *race) Queued(id uuid.UUID) bool {
+	for _, q := range r.next {
+		if q.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// Unqueue drops id from the next race (they left the channel).
+func (r *race) Unqueue(id uuid.UUID) bool {
+	for i, q := range r.next {
+		if q.ID == id {
+			r.next = append(r.next[:i], r.next[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// Tick moves the race on with the clock: countdown to racing; racers with
+// no keys for idleOut are out; the race ends when everyone has finished or
+// is out, at its time limit, or when the finish timer runs out; and after
+// the results, a queued race starts.
+func (r *race) Tick() {
+	now := r.now()
+	switch r.phase {
+	case countdown:
+		if !now.Before(r.startAt) {
+			r.phase = racing
+		}
+	case finished:
+		if len(r.next) > 0 && !r.nextAt.IsZero() && !now.Before(r.nextAt) {
+			r.start(r.length, r.next)
+		}
+		return
+	}
+	if r.phase != racing {
+		return
+	}
 	for _, p := range r.racers {
-		if !p.done {
+		if !p.done && p.Out == "" && now.Sub(p.lastKey) >= idleOut {
+			p.Out, p.outAt = "idle", now
+		}
+	}
+	if r.settled() || !now.Before(r.deadline) || (!r.finishBy.IsZero() && !now.Before(r.finishBy)) {
+		r.end()
+	}
+}
+
+// Live reports whether the race needs the clock: counting down, racing,
+// or showing results before a queued race.
+func (r *race) Live() bool {
+	return r.phase == countdown || r.phase == racing || (r.phase == finished && len(r.next) > 0)
+}
+
+// end finishes the race: anyone still typing is out of time.
+func (r *race) end() {
+	now := r.now()
+	for _, p := range r.racers {
+		if !p.done && p.Out == "" {
+			p.Out, p.outAt = "time", now
+		}
+	}
+	r.phase = finished
+	if len(r.next) > 0 {
+		r.nextAt = now.Add(resultsHold)
+	}
+}
+
+// settled: everyone has finished or is out.
+func (r *race) settled() bool {
+	for _, p := range r.racers {
+		if !p.done && p.Out == "" {
 			return false
 		}
 	}
 	return true
 }
+
+// TimeLeft is what's left of the whole race's limit.
+func (r *race) TimeLeft() time.Duration { return max(0, r.deadline.Sub(r.now())) }
+
+// FinishLeft is what's left on the finish timer, and whether it's running.
+func (r *race) FinishLeft() (time.Duration, bool) {
+	if r.phase != racing || r.finishBy.IsZero() {
+		return 0, false
+	}
+	return max(0, r.finishBy.Sub(r.now())), true
+}
+
+// IdleLeft is how long the racer has before going idle counts them out.
+func (r *race) IdleLeft(p *racer) time.Duration { return idleOut - r.now().Sub(p.lastKey) }
 
 func (r *race) racer(id uuid.UUID) *racer {
 	for _, p := range r.racers {
@@ -167,7 +287,7 @@ func (r *race) racer(id uuid.UUID) *racer {
 
 // active is the racer id while they're still typing this race.
 func (r *race) active(id uuid.UUID) *racer {
-	if p := r.racer(id); p != nil && r.phase == racing && !p.done {
+	if p := r.racer(id); p != nil && r.phase == racing && !p.done && p.Out == "" {
 		return p
 	}
 	return nil
@@ -189,6 +309,7 @@ func (r *race) Type(id uuid.UUID, ch rune) bool {
 	if p == nil || !unicode.IsPrint(ch) {
 		return false
 	}
+	p.lastKey = r.now()
 	good := r.correct(p)
 	if len(p.typed)-good >= maxWrong || len(p.typed) >= len(r.text)+maxWrong {
 		return false
@@ -210,6 +331,7 @@ func (r *race) Backspace(id uuid.UUID) bool {
 	if p == nil || len(p.typed) == 0 {
 		return false
 	}
+	p.lastKey = r.now()
 	p.typed = p.typed[:len(p.typed)-1]
 	return true
 }
@@ -220,6 +342,7 @@ func (r *race) DeleteWord(id uuid.UUID) bool {
 	if p == nil || len(p.typed) == 0 {
 		return false
 	}
+	p.lastKey = r.now()
 	i := len(p.typed)
 	for i > 0 && p.typed[i-1] == ' ' {
 		i--
@@ -246,8 +369,11 @@ func (r *race) finish(p *racer) {
 	if r.onFinish != nil {
 		r.onFinish(p, len(r.racers))
 	}
-	if r.allDone() {
-		r.phase = finished
+	switch {
+	case r.settled():
+		r.end()
+	case r.finishBy.IsZero() && r.grace > 0:
+		r.finishBy = p.doneAt.Add(r.grace) // the rest have this long now
 	}
 }
 
@@ -259,7 +385,11 @@ func (r *race) LiveWPM(p *racer) float64 {
 	if r.phase != racing && r.phase != finished {
 		return 0
 	}
-	d := r.now().Sub(r.startAt)
+	end := r.now()
+	if p.Out != "" {
+		end = p.outAt
+	}
+	d := end.Sub(r.startAt)
 	if d < 2*time.Second { // a few characters in, the figure would be noise
 		return 0
 	}

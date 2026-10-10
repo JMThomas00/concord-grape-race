@@ -20,7 +20,7 @@ terminal.
 ## How to play
 
 - **Enter** starts a race. A countdown begins, and everyone viewing the
-  channel who presses **Enter** before GO joins in. Anyone else watches.
+  channel who presses **Enter** before GO joins in.
 - Type the passage. Typed text turns bright, the next character is
   underlined, and **mistakes turn red**: fix them with **Backspace**
   (**Ctrl+W** deletes a word) before you can finish.
@@ -28,6 +28,23 @@ terminal.
   The first clean finish wins.
 - After the race: results, new personal bests, and the server's fastest
   typists. **Enter** starts the next one.
+
+**Spectating:** if you're in the channel but not racing, you watch one racer
+type live, mistakes and all (the leader, to start with). **←/→** switches
+to someone else. **Enter** puts you in the next race.
+
+**A race always ends.** Nobody can hold the channel by walking away:
+
+| Rule | What happens |
+| --- | --- |
+| Time limit | Short passages get 1 minute, medium 2, long 3 (counting down in the corner). |
+| Finish timer | Once someone finishes, everyone else has 15 seconds (a channel setting) to finish too. It counts down at the bottom. |
+| Idle | No keys for 20 seconds and you're out. At 10 seconds you're asked if you're still there. |
+
+Anyone who doesn't finish shows as **DNF** with how far they got and their
+speed until then; it doesn't count toward records. People who pressed
+**Enter** during the race start the next one automatically, 5 seconds
+after the results appear.
 
 Pasting doesn't type anything, and a finish faster than 250 WPM shows in the
 results but never counts toward records.
@@ -44,7 +61,9 @@ You need to be the server owner, or have the **Manage Plugins** permission.
    **Grape Race** as its type. Under **Configure…** you can set:
    - **Passage length:** short (a sentence or two), medium, long (a full
      paragraph) or mixed;
-   - **Countdown:** 3, 5, 10 or 15 seconds for others to join.
+   - **Countdown:** 3, 5, 10 or 15 seconds for others to join;
+   - **Finish timer:** 10, 15, 30 or 60 seconds for everyone else once
+     someone finishes.
 4. Select the channel, then press **Tab** (or click the pane) so your keys go
    to it. **Esc** or **Ctrl+]** gives the keyboard back to Concord.
 

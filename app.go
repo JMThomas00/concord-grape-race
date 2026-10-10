@@ -69,14 +69,27 @@ func (a *app) setting(ch uuid.UUID, key, def string) string {
 // join starts or joins the channel's race.
 func (a *app) join(ch, id uuid.UUID, name string) {
 	r := a.race(ch)
-	r.countdown = a.countdown
-	if d, err := time.ParseDuration(a.setting(ch, "countdown", "") + "s"); err == nil && d >= time.Second && d <= time.Minute {
-		r.countdown = d
-	}
+	r.countdown = seconds(a.setting(ch, "countdown", ""), a.countdown)
+	r.grace = seconds(a.setting(ch, "finish_timer", ""), defaultFinishTimer)
 	if r.Join(id, name, a.setting(ch, "length", "mixed")) {
 		a.startTicker()
 		a.changed(ch)
 	}
+}
+
+// leave drops someone who closed the channel from its next race.
+func (a *app) leave(ch, id uuid.UUID) {
+	if r := a.races[ch]; r != nil && r.Unqueue(id) {
+		a.changed(ch)
+	}
+}
+
+// seconds reads a whole-seconds setting between 1s and 2m, or def.
+func seconds(v string, def time.Duration) time.Duration {
+	if d, err := time.ParseDuration(v + "s"); err == nil && d >= time.Second && d <= 2*time.Minute {
+		return d
+	}
+	return def
 }
 
 // tickAll moves every live race on and redraws its channel. It reports
@@ -84,12 +97,11 @@ func (a *app) join(ch, id uuid.UUID, name string) {
 func (a *app) tickAll() bool {
 	live := false
 	for ch, r := range a.races {
-		if r.phase != countdown && r.phase != racing {
+		if !r.Live() {
 			continue
 		}
-		if r.Tick() {
-			live = true
-		}
+		r.Tick()
+		live = live || r.Live()
 		a.changed(ch)
 	}
 	return live

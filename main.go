@@ -48,6 +48,11 @@ func handler(a *app) plugin.Handler {
 	h.OnChannel = func(_ *plugin.Conn, ch wire.Channel) {
 		a.settings[ch.ID] = ch.PluginConfig
 	}
+	hostLeave := h.OnLeave
+	h.OnLeave = func(c *plugin.Conn, e wire.PluginPaneLeavePayload) {
+		hostLeave(c, e)
+		a.leave(e.ChannelID, e.ViewerID)
+	}
 	h.OnChannelDelete = func(_ *plugin.Conn, e wire.ChannelDeletePayload) {
 		delete(a.races, e.ChannelID)
 		delete(a.settings, e.ChannelID)

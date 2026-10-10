@@ -66,8 +66,8 @@ func TestJoinOnlyBeforeGo(t *testing.T) {
 	}
 	clk.add(r.countdown)
 	r.Tick()
-	if r.Join(c, "c", "short") {
-		t.Fatal("joined after GO")
+	if !r.Join(c, "c", "short") || r.racer(c) != nil || !r.Queued(c) {
+		t.Fatal("Enter after GO should queue for the next race, not join this one")
 	}
 	if len(r.racers) != 2 {
 		t.Fatalf("%d racers", len(r.racers))
@@ -152,7 +152,8 @@ func TestDeadlineEndsTheRace(t *testing.T) {
 	a := uuid.New()
 	r := started(t, clk, "slow and steady", a)
 	clk.add(time.Hour)
-	if r.Tick() || r.phase != finished {
+	r.Tick()
+	if r.Live() || r.phase != finished {
 		t.Fatal("the race should end at its deadline")
 	}
 	if r.Type(a, 's') {
@@ -207,3 +208,7 @@ func TestWrapKeepsEveryCharacter(t *testing.T) {
 }
 
 func keyRunes(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+func keyType(name string) tea.KeyMsg {
+	return map[string]tea.KeyMsg{"left": {Type: tea.KeyLeft}, "right": {Type: tea.KeyRight}}[name]
+}

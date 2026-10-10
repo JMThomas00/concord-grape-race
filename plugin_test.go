@@ -54,13 +54,16 @@ func TestRaceInConcord(t *testing.T) {
 	srv.Key(bob, "enter")
 	clk.add(2 * time.Second) // the next tick ends the countdown
 	srv.FrameContaining(alice, "GO!")
-	srv.FrameContaining(small, "Spectating")
+	if f := srv.FrameContaining(small, "Spectating"); !strings.Contains(f, "Watching ") {
+		t.Fatalf("a spectator should be watching someone:\n%s", f)
+	}
 
 	clk.add(10 * time.Second) // 16 characters in 10s: about 19 wpm
 	srv.Key(bob, "x")         // a mistake, fixed
 	srv.Key(bob, "backspace")
 	srv.Type(bob, text)
 	srv.FrameContaining(bob, "Finished 1st!")
+	srv.FrameContaining(alice, "left to finish") // the finish timer started
 	rec := nextRecord(t, srv)
 	if rec.UserID != bob.ID || rec.Stats[0].Key != "best_wpm" || rec.Stats[0].Num < 19 || rec.Stats[0].Num > 20 {
 		t.Fatalf("bob's record: %+v", rec)
