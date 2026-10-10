@@ -67,50 +67,39 @@ func (m *model) raceTag() string {
 func (m *model) drawTitle(f frame) {
 	c, anim := f.c, m.animated()
 	m.topbar(f, m.raceTag())
-	m.logo(f, "GRAPE RACE", 4, nil)
-	c.CenterIn(f.ox, f.cw, 7, "·  A   T Y P I N G   R A C E  ·", "dim", "", false)
-	car := m.a.records.car(m.id)
-	cx := f.ox + (f.cw-24)/2
-	drawCar(c, car.Model, car.Paint, cx, 18, 2, false, false)
-	shift := 0
-	if anim {
-		shift = m.a.frame % 4
-	}
-	for i, l := range []string{"═══════  ════   ══", "════  ═════  ═══ ═", "══════   ══ ═════"} {
-		role := "comment"
-		if i == 1 {
-			role = "purple"
-		}
-		if x := cx - 21 + shift; x >= f.ox {
-			c.Text(x, 10+i, l, role, "", false)
-		}
-	}
+	// the logo, the line under it, PRESS ENTER, the channel's news and the
+	// road are one block (16 rows), centred in the pane
+	top := max(2, (f.h-1-16)/2)
+	m.logo(f, "GRAPE RACE", top*2, nil)
+	c.CenterIn(f.ox, f.cw, top+5, "·  A   T Y P I N G   R A C E  ·", "dim", "", false)
 	if m.blink() {
-		c.CenterIn(f.ox, f.cw, 15, "▶  PRESS ENTER  ◀", "yellow", "", true)
+		c.CenterIn(f.ox, f.cw, top+8, "▶  PRESS ENTER  ◀", "yellow", "", true)
 	}
-	c.CenterIn(f.ox, f.cw, 17, m.channelLine(), "cyan", "", false)
-	// the road, and attract mode: cars crossing it
-	c.Fill(f.ox, 19, f.cw, "▁", "line", "")
-	c.Fill(f.ox, 22, f.cw, "▔", "line", "")
+	c.CenterIn(f.ox, f.cw, top+10, m.channelLine(), "cyan", "", false)
+	// attract mode: cars crossing a road that runs the whole width of the
+	// pane, so they drive off its edge rather than off the end of the road
+	road := top + 12
+	c.Fill(0, road, c.W, "▁", "line", "")
+	c.Fill(0, road+3, c.W, "▔", "line", "")
 	off := 0
 	if anim {
 		off = m.a.frame * 2
 	}
-	for i := 0; i < f.cw; i += 6 {
-		if x := (i + off) % f.cw; x+1 < f.cw {
-			c.Text(f.X(x), 21, "━━", "ghost", "", false)
+	for i := 0; i < c.W; i += 6 {
+		if x := (i + off) % c.W; x+1 < c.W {
+			c.Text(x, road+2, "━━", "ghost", "", false)
 		}
 	}
 	for _, a := range []struct {
 		id, paint string
 		speed     float64
-		at        int
-	}{{"tub", "pink", 1.6, 4}, {"monster", "green", 1.1, 32}, {"drag", "orange", 2.1, 58}} {
-		x := a.at
+		at        float64 // where it sits when still, as a share of the width
+	}{{"tub", "pink", 1.6, .05}, {"monster", "green", 1.1, .4}, {"drag", "orange", 2.1, .72}} {
+		x := int(a.at * float64(c.W))
 		if anim {
-			x = int(float64(m.a.frame)*a.speed+float64(a.at))%(f.cw+24) - 12
+			x = int(float64(m.a.frame)*a.speed+a.at*float64(c.W))%(c.W+24) - 12
 		}
-		drawCar(c, a.id, a.paint, f.X(x), 40, 1, false, false)
+		drawCar(c, a.id, a.paint, x, (road+1)*2, 1, false, false)
 	}
 	c.Text(f.X(1), f.h-1, "© 2026 CONCORD ARCADE", "dim", "", false)
 	leave := "leave"
